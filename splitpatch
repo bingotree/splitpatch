@@ -1,0 +1,131 @@
+#!/bin/bash 
+#
+#   Copyright
+#
+#       Copyright (C) 2007 Peter Hutterer <peter@cs.unisa.edu.au>
+#
+#   License
+#
+#       This program is free software; you can redistribute it and/or modify
+#       it under the terms of the GNU General Public License as published by
+#       the Free Software Foundation; either version 2 of the License, or
+#       (at your option) any later version.
+#
+#       This program is distributed in the hope that it will be useful,
+#       but WITHOUT ANY WARRANTY; without even the implied warranty of
+#       MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#       GNU General Public License for more details.
+#
+#       You should have received a copy of the GNU General Public License
+#       along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+#  Description
+#
+#       Splitpatch is a simple script to split a patch up into
+#       multiple patch files. If the --hunks option is provided on the
+#       command line, each hunk gets its own patchfile.
+#
+#  Translated to bash shell script by Brian Duncan <brian@bingotree.com>.
+
+NAMESPACE='SPLITPATCH';
+CREATE_DIR=0;
+validFile() {
+    if [[ -r "$1" && -f "$1" ]]; then return 0; else return 1; fi
+}
+fileExists() {
+    if [[ -f "$1" ]]; then return 0; else return 1; fi
+}
+
+# Split the patchfile into one patchfile-per file to be patched.
+splitByFile() {
+    while IFS= read line; do
+        # We need to create a new file if line matches regexp /^--- .*/'
+        #   (ie first line after patch header).
+        if [[ "$line" =~ '^--- ' ]]; then
+            # "Close" the outfile.
+            if [ ! -z "$outfile" ]; then
+                unset outfile;
+            fi
+            # Get filename from the line.
+            filename=".$NAMESPACE.${line##*/}.patch"
+
+            if fileExists $filename; then
+                echo "File $filename already exists. Renaming patch."
+                appendix=0
+                while fileExists "$filename.$appendix"; do
+                    let appendix=$appendix+1
+                done
+                filename="$filename.$appendix"
+            fi
+            outfile=$filename
+            echo $line > $outfile
+        else
+            if [ ! -z "$outfile" ]; then
+               echo -e $line >> $outfile
+            fi
+        fi
+    done < $1
+}
+splitByHunk() {
+    counter=0
+    filename=""
+    header=""
+    while IFS= read line; do
+        if [[ "$line" =~ '^--- ' ]]; then
+            filename=".$NAMESPACE.${line##*/}"
+            echo $filename
+            header=$line
+            read line;
+            header="$header\n$line"
+            counter=0
+        elif [[ "$line" =~ '^@@ .* @@.*' ]]; then
+            if [ ! -z "$outfile" ]; then
+                unset outfile;
+            fi
+            hunkfilename="$filename.$counter.patch"
+            if fileExists $hunkfilename; then
+                echo "File $hunkfilename already exists. Renaming patch."
+                appendix=0;
+            while fileExists "$hunkfilename.$appendix"; do
+                let appendix=$appendix+1
+            done
+            hunkfilename="$hunkfilename.$appendix"
+            fi
+            outfile=$hunkfilename;
+            let counter=$counter+1;
+            echo -e $header > $outfile
+            echo $line >> $outfile
+        else
+            if [ ! -z "$outfile" ]; then
+                   echo -e "$line" >> $outfile
+            fi
+        fi
+    done < $1
+}
+
+########################     MAIN     ########################
+# Rework these options to allow for a namespace to be set (which creates a temporary directory), which
+# can be used to locate the files later.
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+    echo "Invalid parameters. Usage: ${0##*/} [--hunks] <patchfile>"
+    exit 1
+elif [ $1 = "--help" ]; then
+    echo -e "\nsplitpatch\n\n" \
+         "  Splits a multi-file patch into a set of patches.\n" \
+         "  If the --hunk option is given, a new file is created for each hunk.\n" \
+         "  Currently splitpatch only supports unified diff patches.\n"
+    exit 0
+else
+    INPUTFILE=${@: -1}
+    if validFile $INPUTFILE; then
+        if [ $1 = "--hunks" ]; then
+            splitByHunk $INPUTFILE;
+        else
+            splitByFile $INPUTFILE;
+        fi
+    else
+        echo "Error: File '$INPUTFILE' does not exist or is not readable."
+        exit 1;
+    fi
+fi
+exit 0
