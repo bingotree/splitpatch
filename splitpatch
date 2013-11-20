@@ -25,15 +25,20 @@
 #       multiple patch files. If the --hunks option is provided on the
 #       command line, each hunk gets its own patchfile.
 #
-#  Translated to bash shell script by Brian Duncan <brian@bingotree.com>.
+#  Translated to bash shell script by Brian Duncan <brian@bingotree.com> on 11/11/2013.
 
 NAMESPACE='SPLITPATCH';
 CREATE_DIR=0;
+outfile=0;
 validFile() {
     if [[ -r "$1" && -f "$1" ]]; then return 0; else return 1; fi
 }
 fileExists() {
     if [[ -f "$1" ]]; then return 0; else return 1; fi
+}
+setFilenameFromPatchLine() {
+    outfile=$(basename $(echo "$1" | cut -f2 -d' '));
+    return 0;
 }
 
 # Split the patchfile into one patchfile-per file to be patched.
@@ -47,9 +52,10 @@ splitByFile() {
                 unset outfile;
             fi
             # Get filename from the line.
-            filename=".$NAMESPACE.${line##*/}.patch"
+            setFilenameFromPatchLine "$line";
+            filename=".$NAMESPACE.$outfile.patch"
 
-            if fileExists $filename; then
+            if fileExists "$filename"; then
                 echo "File $filename already exists. Renaming patch."
                 appendix=0
                 while fileExists "$filename.$appendix"; do
@@ -61,7 +67,7 @@ splitByFile() {
             echo $line > $outfile
         else
             if [ ! -z "$outfile" ]; then
-               echo -e $line >> $outfile
+               echo -e "$line" >> $outfile
             fi
         fi
     done < $1
@@ -72,8 +78,8 @@ splitByHunk() {
     header=""
     while IFS= read line; do
         if [[ "$line" =~ '^--- ' ]]; then
-            filename=".$NAMESPACE.${line##*/}"
-            echo $filename
+            setFilenameFromPatchLine "$line";
+            filename=".$NAMESPACE.$outfile.patch"
             header=$line
             read line;
             header="$header\n$line"
@@ -104,8 +110,8 @@ splitByHunk() {
 }
 
 ########################     MAIN     ########################
-# Rework these options to allow for a namespace to be set (which creates a temporary directory), which
-# can be used to locate the files later.
+# TODO Rework these options to allow for a namespace to be set to either create 
+# a temporary directory or prefix the file which can be used to locate the files later.
 if [[ $# -lt 1 || $# -gt 2 ]]; then
     echo "Invalid parameters. Usage: ${0##*/} [--hunks] <patchfile>"
     exit 1
